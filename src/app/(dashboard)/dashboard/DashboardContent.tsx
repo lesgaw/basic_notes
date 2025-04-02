@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useMemo } from "react";
-import { format } from "date-fns";
+import { format, parseISO, isWithinInterval, addDays } from "date-fns";
 import {
   Search,
   X,
   TagIcon,
-  Calendar,
   Filter,
   Plus,
   ArrowUpDown,
@@ -16,21 +15,20 @@ import {
   Trash2,
   FolderKanban,
   MoreVertical,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DateRange } from "react-day-picker";
+import { cn } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -125,12 +123,15 @@ export function DashboardContent({
   const [searchText, setSearchText] = useState("");
   const [selectedTagId, setSelectedTagId] = useState("all");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [sortField, setSortField] = useState<"title" | "date" | "project">("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [notesPerPage] = useState(5);
+  const [notesPerPage, setNotesPerPage] = useState(20);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
-  // Filter notes based on search text, selected tag, and project
+  // Filter notes based on search text, selected tag, project, and date range
   const filteredNotes = useMemo(() => {
     return initialNotes.filter((note) => {
       const matchesSearch = searchText === "" || (
@@ -139,9 +140,19 @@ export function DashboardContent({
       );
       const matchesTag = selectedTagId === "all" || note.tags.some(tag => tag.id === selectedTagId);
       const matchesProject = selectedProjectId === null || note.projectId === selectedProjectId;
-      return matchesSearch && matchesTag && matchesProject;
+      
+      // Date range filtering
+      const noteDate = parseISO(note.date);
+      const matchesDateRange = 
+        !dateRange?.from || !dateRange?.to || // If no date range is selected, show all notes
+        isWithinInterval(noteDate, {
+          start: dateRange.from,
+          end: dateRange.to,
+        });
+
+      return matchesSearch && matchesTag && matchesProject && matchesDateRange;
     });
-  }, [initialNotes, searchText, selectedTagId, selectedProjectId]);
+  }, [initialNotes, searchText, selectedTagId, selectedProjectId, dateRange]);
 
   // Sort notes
   const sortedNotes = [...filteredNotes].sort((a, b) => {
@@ -170,6 +181,12 @@ export function DashboardContent({
 
   const paginate = (pageNumber: number) => setCurrentPage(pageNumber);
 
+  // Reset to first page when changing notes per page
+  const handleNotesPerPageChange = (value: string) => {
+    setNotesPerPage(Number(value));
+    setCurrentPage(1);
+  };
+
   // Toggle sort direction or change sort field
   const toggleSort = (field: "title" | "date" | "project") => {
     if (sortField === field) {
@@ -188,18 +205,17 @@ export function DashboardContent({
       </div>
 
       {/* Filters Section */}
-      <div className="bg-card rounded-lg p-4 mb-8 shadow-sm border">
-        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center mb-4">
-          <h2 className="text-xl font-semibold flex items-center">
-            <Filter className="mr-2 h-5 w-5" />
-            Filters
-          </h2>
-          <div className="flex-1 w-full md:w-auto">
+      <div className="bg-card rounded-lg p-4 mb-8 shadow-sm border relative">
+        <div className="absolute -top-3 left-5 bg-background px-2 text-sm text-muted-foreground">
+          Filters
+        </div>
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
+          <div className="flex-1">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="Search notes..."
-                className="pl-8 w-full md:w-[300px]"
+                className="pl-8 w-full"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
               />
@@ -216,39 +232,81 @@ export function DashboardContent({
             </div>
           </div>
 
-          <Select
-            value={selectedProjectId || "all"}
-            onValueChange={(value) => setSelectedProjectId(value === "all" ? null : value)}
-          >
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="All Projects" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Projects</SelectItem>
-              {projects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Date Range Picker */}
+          <div className="flex-1">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !dateRange && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "LLL dd, y")} -{" "}
+                        {format(dateRange.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Pick a date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
 
-          <Select
-            value={selectedTagId}
-            onValueChange={setSelectedTagId}
-          >
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="All Tags" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Tags</SelectItem>
-              {tags.map((tag) => (
-                <SelectItem key={tag.id} value={tag.id}>
-                  {tag.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex-1">
+            <Select
+              value={selectedProjectId || "all"}
+              onValueChange={(value) => setSelectedProjectId(value === "all" ? null : value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Projects" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Projects</SelectItem>
+                {projects.map((project) => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex-1">
+            <Select
+              value={selectedTagId}
+              onValueChange={setSelectedTagId}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Tags" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tags</SelectItem>
+                {tags.map((tag) => (
+                  <SelectItem key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           <Button
             variant="outline"
@@ -257,11 +315,12 @@ export function DashboardContent({
               setSearchText("");
               setSelectedTagId("all");
               setSelectedProjectId(null);
+              setDateRange(undefined);
               setSortField("date");
               setSortDirection("desc");
               setCurrentPage(1);
             }}
-            className="ml-auto"
+            className="w-[140px] shrink-0"
           >
             Reset All Filters
           </Button>
@@ -365,7 +424,7 @@ export function DashboardContent({
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <DropdownMenu>
+                        <DropdownMenu open={openDropdownId === note.id} onOpenChange={(open) => setOpenDropdownId(open ? note.id : null)}>
                           <DropdownMenuTrigger asChild>
                             <Button
                               variant="ghost"
@@ -376,19 +435,17 @@ export function DashboardContent({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-[160px]">
-                            <NoteForm 
-                              note={noteForForm} 
-                              tags={tags} 
-                              projects={projects}
+                            <DropdownMenuItem 
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                setEditingNoteId(note.id);
+                                setOpenDropdownId(null);
+                              }}
+                              className="cursor-pointer"
                             >
-                              <DropdownMenuItem 
-                                onSelect={(e) => e.preventDefault()}
-                                className="cursor-pointer"
-                              >
-                                <PenBox className="h-4 w-4" />
-                                <span className="ml-2">Edit</span>
-                              </DropdownMenuItem>
-                            </NoteForm>
+                              <PenBox className="h-4 w-4" />
+                              <span className="ml-2">Edit</span>
+                            </DropdownMenuItem>
                             <form 
                               action={deleteNote}
                             >
@@ -397,7 +454,10 @@ export function DashboardContent({
                                 asChild
                                 className="cursor-pointer text-destructive focus:text-destructive"
                               >
-                                <button className="w-full flex items-center px-2 py-1.5 text-sm">
+                                <button 
+                                  className="w-full flex items-center px-2 py-1.5 text-sm"
+                                  onClick={() => setOpenDropdownId(null)}
+                                >
                                   <Trash2 className="h-4 w-4" />
                                   <span className="ml-2">Delete</span>
                                 </button>
@@ -405,6 +465,18 @@ export function DashboardContent({
                             </form>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        <NoteForm 
+                          note={noteForForm} 
+                          tags={tags} 
+                          projects={projects}
+                          open={editingNoteId === note.id}
+                          onOpenChange={(open) => {
+                            setEditingNoteId(open ? note.id : null);
+                            if (!open) {
+                              setOpenDropdownId(null);
+                            }
+                          }}
+                        />
                       </TableCell>
                     </TableRow>
                   );
@@ -417,10 +489,31 @@ export function DashboardContent({
           <div className="fixed bottom-0 left-0 right-0 bg-background border-t">
             <div className="container mx-auto max-w-7xl px-4">
               <div className="py-4 flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">
-                  Showing {indexOfFirstNote + 1}-
-                  {Math.min(indexOfLastNote, sortedNotes.length)} of{" "}
-                  {sortedNotes.length} notes
+                <div className="flex items-center gap-4">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {indexOfFirstNote + 1}-
+                    {Math.min(indexOfLastNote, sortedNotes.length)} of{" "}
+                    {sortedNotes.length} notes
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="rows-per-page" className="text-sm">Rows per page:</Label>
+                    <Select
+                      value={notesPerPage.toString()}
+                      onValueChange={handleNotesPerPageChange}
+                    >
+                      <SelectTrigger id="rows-per-page" className="h-8 w-[70px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5</SelectItem>
+                        <SelectItem value="10">10</SelectItem>
+                        <SelectItem value="15">15</SelectItem>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="30">30</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Button

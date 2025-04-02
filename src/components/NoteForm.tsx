@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createNote, updateNote } from "@/app/actions/notes";
 import { useRouter } from "next/navigation";
 import { noteSchema, type NoteFormData } from "@/lib/schemas/note";
 import { format } from "date-fns";
-import { Calendar } from "lucide-react";
+import { Calendar, Loader2 } from "lucide-react";
 import { PenBox, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -52,41 +52,34 @@ interface NoteFormProps {
   projects: Project[];
   children?: React.ReactNode;
   onSubmit?: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function NoteForm({ note, tags, projects, children, onSubmit }: NoteFormProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export function NoteForm({ note, tags, projects, children, onSubmit, open, onOpenChange }: NoteFormProps) {
   const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedTags, setSelectedTags] = useState<string[]>(
     note?.tags?.map((tag) => tag.id) || []
   );
   const [selectedProject, setSelectedProject] = useState<string | null>(
     note?.projectId || null
   );
+  const [isOpen, setIsOpen] = useState(false);
 
-  const handleSubmit = async (formData: FormData) => {
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    onOpenChange?.(open);
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     try {
+      setIsSubmitting(true);
       setError(null);
-      const data = {
-        title: formData.get("title") as string,
-        content: formData.get("content") as string,
-        date: new Date(formData.get("date") as string),
-        projectId: formData.get("projectId") as string || null,
-        tagIds: formData.getAll("tagIds") as string[],
-      };
 
-      try {
-        const validatedData = noteSchema.parse(data);
-      } catch (validationError: any) {
-        if (validationError.errors?.[0]) {
-          setError(validationError.errors[0].message);
-        } else {
-          setError("Please check all required fields");
-        }
-        return;
-      }
-
+      const formData = new FormData(e.currentTarget);
       if (note) {
         formData.append("id", note.id);
         await updateNote(formData);
@@ -94,20 +87,166 @@ export function NoteForm({ note, tags, projects, children, onSubmit }: NoteFormP
         await createNote(formData);
       }
 
-      setIsOpen(false);
+      // First refresh the data
+      await router.refresh();
+      
+      // Then close the modal and call onSubmit
+      handleOpenChange(false);
       onSubmit?.();
-      router.refresh();
     } catch (err) {
+      console.error("Form submission error:", err);
       if (err instanceof Error) {
         setError(err.message);
       } else {
         setError("An error occurred while saving the note");
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  // Reset selected tags when the form is opened for a new note
+  useEffect(() => {
+    if (!note) {
+      setSelectedTags([]);
+      setSelectedProject(null);
+    }
+  }, [note]);
+
+  const dialogContent = (
+    <DialogContent className="sm:max-w-[700px] md:max-w-[800px]">
+      <DialogHeader>
+        <DialogTitle>{note ? "Edit Note" : "Create New Note"}</DialogTitle>
+        <DialogDescription>
+          {note
+            ? "Make changes to your note here. Click save when you're done."
+            : "Add a new note to your collection. Click save when you're done."}
+        </DialogDescription>
+      </DialogHeader>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="title">Title <span className="text-red-500">*</span></Label>
+          <Input
+            id="title"
+            name="title"
+            defaultValue={note?.title}
+            placeholder="Note title"
+            required
+            className={error?.includes("Title") ? "border-red-500" : ""}
+            disabled={isSubmitting}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="date">Date</Label>
+          <Input
+            id="date"
+            name="date"
+            type="date"
+            defaultValue={note ? format(note.date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd")}
+            disabled={isSubmitting}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="project">Project</Label>
+          <select
+            name="projectId"
+            className="w-full px-3 py-2 border rounded-md"
+            value={selectedProject || ""}
+            onChange={(e) => setSelectedProject(e.target.value || null)}
+            disabled={isSubmitting}
+          >
+            <option value="">No Project</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="content">Content</Label>
+          <Textarea
+            id="content"
+            name="content"
+            defaultValue={note?.content}
+            placeholder="Note content"
+            rows={12}
+            className="min-h-[200px]"
+            disabled={isSubmitting}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Tags</Label>
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <label key={tag.id} className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="tagIds"
+                  value={tag.id}
+                  checked={selectedTags.includes(tag.id)}
+                  className="rounded border-gray-300"
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedTags([...selectedTags, tag.id]);
+                    } else {
+                      setSelectedTags(selectedTags.filter((id) => id !== tag.id));
+                    }
+                  }}
+                  disabled={isSubmitting}
+                />
+                <span>{tag.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {error && (
+          <div className="text-sm text-red-500">
+            {error}
+          </div>
+        )}
+        <DialogFooter className="flex gap-2">
+          <DialogClose asChild>
+            <Button 
+              type="button" 
+              variant="outline" 
+              disabled={isSubmitting}
+              className="w-[120px]"
+            >
+              Cancel
+            </Button>
+          </DialogClose>
+          <Button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="w-[120px]"
+          >
+            {isSubmitting ? (
+              <div className="flex items-center justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="ml-2">Saving...</span>
+              </div>
+            ) : (
+              "Save Note"
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+
+  // If we're controlling the dialog externally (open prop is provided)
+  if (open !== undefined) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        {dialogContent}
+      </Dialog>
+    );
+  }
+
+  // If we're not controlling the dialog externally, use internal state
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         {children || (
           <Button variant={note ? "ghost" : "default"} size={note ? "icon" : "default"}>
@@ -119,102 +258,7 @@ export function NoteForm({ note, tags, projects, children, onSubmit }: NoteFormP
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[700px] md:max-w-[800px]">
-        <DialogHeader>
-          <DialogTitle>{note ? "Edit Note" : "Create New Note"}</DialogTitle>
-          <DialogDescription>
-            {note
-              ? "Make changes to your note here. Click save when you're done."
-              : "Add a new note to your collection. Click save when you're done."}
-          </DialogDescription>
-        </DialogHeader>
-        <form action={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="title">Title <span className="text-red-500">*</span></Label>
-            <Input
-              id="title"
-              name="title"
-              defaultValue={note?.title}
-              placeholder="Note title"
-              required
-              className={error?.includes("Title") ? "border-red-500" : ""}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="date">Date</Label>
-            <Input
-              id="date"
-              name="date"
-              type="date"
-              defaultValue={note ? format(note.date, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd")}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="project">Project</Label>
-            <select
-              name="projectId"
-              className="w-full px-3 py-2 border rounded-md"
-              value={selectedProject || ""}
-              onChange={(e) => setSelectedProject(e.target.value || null)}
-            >
-              <option value="">No Project</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="content">Content</Label>
-            <Textarea
-              id="content"
-              name="content"
-              defaultValue={note?.content}
-              placeholder="Note content"
-              rows={12}
-              className="min-h-[200px]"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Tags</Label>
-            <div className="flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <label key={tag.id} className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    name="tagIds"
-                    value={tag.id}
-                    defaultChecked={selectedTags.includes(tag.id)}
-                    className="rounded border-gray-300"
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedTags([...selectedTags, tag.id]);
-                      } else {
-                        setSelectedTags(selectedTags.filter((id) => id !== tag.id));
-                      }
-                    }}
-                  />
-                  <span>{tag.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          {error && (
-            <div className="text-sm text-red-500">
-              {error}
-            </div>
-          )}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button type="submit">Save Note</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
+      {dialogContent}
     </Dialog>
   );
 } 
