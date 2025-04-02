@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { format } from "date-fns";
 import {
   Search,
@@ -15,6 +15,7 @@ import {
   PenBox,
   Trash2,
   FolderKanban,
+  MoreVertical,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,27 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { NoteForm } from "@/components/NoteForm";
 import { deleteNote } from "@/app/actions/notes";
 
@@ -101,7 +123,7 @@ export function DashboardContent({
   projects: SerializedProject[];
 }) {
   const [searchText, setSearchText] = useState("");
-  const [selectedTagId, setSelectedTagId] = useState("");
+  const [selectedTagId, setSelectedTagId] = useState("all");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [sortField, setSortField] = useState<"title" | "date" | "project">("date");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
@@ -109,20 +131,17 @@ export function DashboardContent({
   const [notesPerPage] = useState(5);
 
   // Filter notes based on search text, selected tag, and project
-  const filteredNotes = initialNotes.filter((note) => {
-    const matchesSearch =
-      searchText === "" ||
-      note.title.toLowerCase().includes(searchText.toLowerCase()) ||
-      note.content.toLowerCase().includes(searchText.toLowerCase());
-
-    const matchesTag =
-      selectedTagId === "" || note.tags.some((tag) => tag.id === selectedTagId);
-
-    const matchesProject =
-      selectedProjectId === null || note.projectId === selectedProjectId;
-
-    return matchesSearch && matchesTag && matchesProject;
-  });
+  const filteredNotes = useMemo(() => {
+    return initialNotes.filter((note) => {
+      const matchesSearch = searchText === "" || (
+        note.title.toLowerCase().includes(searchText.toLowerCase()) ||
+        note.content.toLowerCase().includes(searchText.toLowerCase())
+      );
+      const matchesTag = selectedTagId === "all" || note.tags.some(tag => tag.id === selectedTagId);
+      const matchesProject = selectedProjectId === null || note.projectId === selectedProjectId;
+      return matchesSearch && matchesTag && matchesProject;
+    });
+  }, [initialNotes, searchText, selectedTagId, selectedProjectId]);
 
   // Sort notes
   const sortedNotes = [...filteredNotes].sort((a, b) => {
@@ -162,9 +181,9 @@ export function DashboardContent({
   };
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Notes</h1>
+    <div className="container mx-auto py-8 px-4 max-w-7xl">
+      <div className="flex justify-between items-center mb-8 px-2">
+        <h1 className="text-xl font-bold">Notes</h1>
         <NoteForm tags={tags} projects={projects} />
       </div>
 
@@ -197,38 +216,46 @@ export function DashboardContent({
             </div>
           </div>
 
-          <select
-            className="px-4 py-2 border rounded-lg"
-            value={selectedProjectId || ""}
-            onChange={(e) => setSelectedProjectId(e.target.value || null)}
+          <Select
+            value={selectedProjectId || "all"}
+            onValueChange={(value) => setSelectedProjectId(value === "all" ? null : value)}
           >
-            <option value="">All Projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Projects" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Projects</SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <select
-            className="px-4 py-2 border rounded-lg"
+          <Select
             value={selectedTagId}
-            onChange={(e) => setSelectedTagId(e.target.value)}
+            onValueChange={setSelectedTagId}
           >
-            <option value="">All Tags</option>
-            {tags.map((tag) => (
-              <option key={tag.id} value={tag.id}>
-                {tag.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Tags" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tags</SelectItem>
+              {tags.map((tag) => (
+                <SelectItem key={tag.id} value={tag.id}>
+                  {tag.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <Button
             variant="outline"
             size="sm"
             onClick={() => {
               setSearchText("");
-              setSelectedTagId("");
+              setSelectedTagId("all");
               setSelectedProjectId(null);
               setSortField("date");
               setSortDirection("desc");
@@ -244,12 +271,12 @@ export function DashboardContent({
       {/* Notes Table */}
       {sortedNotes.length > 0 ? (
         <>
-          <div className="rounded-md border mb-4">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th
-                    className="text-left py-2 cursor-pointer"
+          <div className="rounded-md border mb-4 overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead
+                    className="w-[300px] lg:w-[250px] cursor-pointer"
                     onClick={() => toggleSort("title")}
                   >
                     <div className="flex items-center">
@@ -262,12 +289,12 @@ export function DashboardContent({
                         />
                       )}
                     </div>
-                  </th>
-                  <th
-                    className="text-left py-2 cursor-pointer"
+                  </TableHead>
+                  <TableHead
+                    className="w-[120px] text-center cursor-pointer"
                     onClick={() => toggleSort("date")}
                   >
-                    <div className="flex items-center">
+                    <div className="flex items-center justify-center">
                       Date
                       {sortField === "date" && (
                         <ArrowUpDown
@@ -277,12 +304,12 @@ export function DashboardContent({
                         />
                       )}
                     </div>
-                  </th>
-                  <th
-                    className="text-left py-2 cursor-pointer"
+                  </TableHead>
+                  <TableHead
+                    className="w-[190px] lg:w-[160px] text-center cursor-pointer"
                     onClick={() => toggleSort("project")}
                   >
-                    <div className="flex items-center">
+                    <div className="flex items-center justify-center">
                       Project
                       {sortField === "project" && (
                         <ArrowUpDown
@@ -292,13 +319,13 @@ export function DashboardContent({
                         />
                       )}
                     </div>
-                  </th>
-                  <th>Content Preview</th>
-                  <th className="w-[200px]">Tags</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+                  </TableHead>
+                  <TableHead className="hidden lg:table-cell w-[310px]">Content Preview</TableHead>
+                  <TableHead className="hidden xl:table-cell min-w-[200px]">Tags</TableHead>
+                  <TableHead className="w-[70px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {currentNotes.map((note) => {
                   const noteForForm: NoteWithDate = {
                     id: note.id,
@@ -313,19 +340,19 @@ export function DashboardContent({
                     }))
                   };
                   return (
-                    <tr key={note.id} className="border-b">
-                      <td className="py-2">{note.title}</td>
-                      <td className="py-2">
+                    <TableRow key={note.id}>
+                      <TableCell className="font-medium">{note.title}</TableCell>
+                      <TableCell className="text-center">
                         {format(new Date(note.date), "yyyy-MM-dd")}
-                      </td>
-                      <td className="py-2">
+                      </TableCell>
+                      <TableCell className="text-center">
                         {note.project?.name || "No Project"}
-                      </td>
-                      <td className="py-2">
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-muted-foreground">
                         {note.content.substring(0, 30)}
                         {note.content.length > 30 ? "..." : ""}
-                      </td>
-                      <td className="py-2">
+                      </TableCell>
+                      <TableCell className="hidden xl:table-cell">
                         <div className="flex flex-wrap gap-1">
                           {note.tags.map((tag) => (
                             <span
@@ -336,64 +363,96 @@ export function DashboardContent({
                             </span>
                           ))}
                         </div>
-                      </td>
-                      <td className="py-2 text-right">
-                        <NoteForm note={noteForForm} tags={tags} projects={projects} />
-                        <form action={deleteNote} className="inline">
-                          <input type="hidden" name="id" value={note.id} />
-                          <Button
-                            type="submit"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </form>
-                      </td>
-                    </tr>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[160px]">
+                            <NoteForm 
+                              note={noteForForm} 
+                              tags={tags} 
+                              projects={projects}
+                            >
+                              <DropdownMenuItem 
+                                onSelect={(e) => e.preventDefault()}
+                                className="cursor-pointer"
+                              >
+                                <PenBox className="h-4 w-4" />
+                                <span className="ml-2">Edit</span>
+                              </DropdownMenuItem>
+                            </NoteForm>
+                            <form 
+                              action={deleteNote}
+                            >
+                              <input type="hidden" name="id" value={note.id} />
+                              <DropdownMenuItem 
+                                asChild
+                                className="cursor-pointer text-destructive focus:text-destructive"
+                              >
+                                <button className="w-full flex items-center px-2 py-1.5 text-sm">
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="ml-2">Delete</span>
+                                </button>
+                              </DropdownMenuItem>
+                            </form>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           {/* Pagination */}
-          <div className="fixed bottom-0 left-0 right-0 bg-background border-t py-4 px-4 flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              Showing {indexOfFirstNote + 1}-
-              {Math.min(indexOfLastNote, sortedNotes.length)} of{" "}
-              {sortedNotes.length} notes
-            </div>
-            <div className="flex items-center space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => paginate(currentPage - 1)}
-                disabled={currentPage === 1}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                (number) => (
+          <div className="fixed bottom-0 left-0 right-0 bg-background border-t">
+            <div className="container mx-auto max-w-7xl px-4">
+              <div className="py-4 flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">
+                  Showing {indexOfFirstNote + 1}-
+                  {Math.min(indexOfLastNote, sortedNotes.length)} of{" "}
+                  {sortedNotes.length} notes
+                </div>
+                <div className="flex items-center space-x-2">
                   <Button
-                    key={number}
-                    variant={currentPage === number ? "default" : "outline"}
+                    variant="outline"
                     size="sm"
-                    onClick={() => paginate(number)}
+                    onClick={() => paginate(currentPage - 1)}
+                    disabled={currentPage === 1}
                   >
-                    {number}
+                    <ChevronLeft className="h-4 w-4" />
                   </Button>
-                )
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => paginate(currentPage + 1)}
-                disabled={currentPage === totalPages}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                    (number) => (
+                      <Button
+                        key={number}
+                        variant={currentPage === number ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => paginate(number)}
+                      >
+                        {number}
+                      </Button>
+                    )
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => paginate(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
           <div className="pb-20"></div>
